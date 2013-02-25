@@ -63,14 +63,14 @@ private:
 	// Block, used for referencing 1 Block of data.
 	struct Block {
 		uint64_t data[4];
+		Block & operator+ (const Block &rhs);
+		Block & operator= (const Block &rhs);
 	};
 
 	// LRSide, used for referencing 1 side in a fiestel process.
 	struct LRSide {
 		uint64_t data[2];
 	};
-
-	Block& operator= (const Block &rhs);
 
 private:
 // Private Methods

@@ -48,13 +48,15 @@ void WilhelmCBC::setOutput (std::string filename)
 
 void WilhelmCBC::setKey (std::string password)
 {
-	SHA256::digest key = SHA256_digest (password);
+	// Generate 256 bit key from password
+	SHA256::digest initKey = SHA256_digest (password);
 	
-	_baseKey.data[0] = (uint64_t)key.data[0];
-	_baseKey.data[1] = (uint64_t)key.data[8];
-	_baseKey.data[2] = (uint64_t)key.data[16];
-	_baseKey.data[3] = (uint64_t)key.data[24];
+	_baseKey.data[0] = (uint64_t)initKey.data[0];
+	_baseKey.data[1] = (uint64_t)initKey.data[8];
+	_baseKey.data[2] = (uint64_t)initKey.data[16];
+	_baseKey.data[3] = (uint64_t)initKey.data[24];
 
+	// Hash key block 5 more times
 	for (int i = 0; i < 5; i++)
 		Hash_SHA256_Block(_baseKey);
 	
@@ -116,6 +118,7 @@ WilhelmCBC::Block WilhelmCBC::Padding (WilhelmCBC::Block)
 	
 }
 
+// Hash 1 block with SHA256. Writes directly to parameter block.
 void WilhelmCBC::Hash_SHA256_Block (WilhelmCBC::Block & b)
 {
 	SHA256 hash;
@@ -128,7 +131,42 @@ void WilhelmCBC::Hash_SHA256_Block (WilhelmCBC::Block & b)
 	b.data[3] = (uint64_t)d.data[24];
 }
 
-WilhelmCBC::Block & WilhelmCBC::operator= (const WilhelmCBC::Block &rhs)
+
+/**** Overloaded Operators ****/
+
+// Block asignment operator
+WilhelmCBC::Block & WilhelmCBC::Block::operator= (const WilhelmCBC::Block &rhs)
 {
+	// Assignment
+	for (unsigned int i = 0; i < 4; i++)
+	{
+		data[i] = rhs.data[i];
+	}
+	return *this;
+}
+
+// Block addition operator
+WilhelmCBC::Block & WilhelmCBC::Block::operator+ (const WilhelmCBC::Block &rhs)
+{
+	// Addition, carries from one 64bit int to the next, ignores overflow of 256bit struct.
+	// I originally forgot about carries carrying when I decided to make it a for loop. Might have been cleaner expclicitly.
+	for (unsigned int i = 0; i < 4; i++)
+	{
+		data[i] += rhs.data[i];
+		if (i < 3 && data[i] < rhs.data[i])
+		{
+			++data[i+1];
+			if (i < 2 && data[i+1] < (data[i+1]-1))
+			{
+				++data[i+2];
+				if (i < 1 && data[i+2] < (data[i+2]-1))
+				{
+					// It will be a rare blue moon when this get is executed. Adding to solid 0xF's for 192 bits...
+					++data[i+3];
+				}
+			}
+		}
+	}
 	
+	return *this;
 }
