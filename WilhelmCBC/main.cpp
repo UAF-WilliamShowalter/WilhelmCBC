@@ -25,6 +25,8 @@ int main(int argc, const char * argv[])
 	encryptor.setInput ("/Users/William/Desktop/thetest.png");
 	encryptor.setOutput ("/Users/William/Desktop/theoutput");
 	encryptor.setKey ("myPassword!");
+
+	encryptor.publicDebugFunc();
 	return 0;
 }
 

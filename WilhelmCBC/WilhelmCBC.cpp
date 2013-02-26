@@ -111,9 +111,24 @@ WilhelmCBC::LRSide WilhelmCBC::fiestel (WilhelmCBC::LRSide)
 	
 }
 
-WilhelmCBC::LRSide WilhelmCBC::permutationKey (WilhelmCBC::Block, unsigned int, unsigned int)
+WilhelmCBC::LRSide WilhelmCBC::permutationKey (WilhelmCBC::Block key, unsigned int round, unsigned int blockNum)
 {
-	
+
+	// Generate permutation key from Block key
+	key.data[0]+=blockNum;
+	Hash_SHA256_Block(key);
+	key.data[0]+=round;
+	Hash_SHA256_Block(key);
+
+	uint64_t * LRKeyPtr1;
+
+	// XOR the first 128 bits with the second 128 bits.
+	LRKeyPtr1 = (uint64_t*)(&key.data[0]);
+	LRKeyPtr1[0] = LRKeyPtr1[0]^LRKeyPtr1[2];
+	LRKeyPtr1[1] = LRKeyPtr1[1]^LRKeyPtr1[3];
+
+	// return our LRSide key
+	return *((LRSide*)LRKeyPtr1);
 }
 
 WilhelmCBC::Block WilhelmCBC::IVGenerator ()
@@ -133,9 +148,19 @@ WilhelmCBC::Block WilhelmCBC::IVGenerator ()
 	return b;
 }
 
-WilhelmCBC::Block WilhelmCBC::Padding (WilhelmCBC::Block)
+WilhelmCBC::Block WilhelmCBC::Padding (WilhelmCBC::Block b)
 {
+	// We're inserting the number of meaningful (non-padded) bytes of the last data block into some random (but predictable if we know the plaintext!) location in a randomly generated block.
 	
+	Hash_SHA256_Block(b);
+	unsigned int pos = b.data[0] % BLOCK_BYTES;
+
+	Block paddingCounted = IVGenerator();
+	
+	// Inserting the number of bytes
+	paddingCounted.data[pos] = (char)(_inputSize % BLOCK_BYTES);
+
+	return paddingCounted;
 }
 
 // Hash 1 block with SHA256. Writes directly to parameter block.
@@ -181,4 +206,29 @@ void	WilhelmCBC::printBlock (WilhelmCBC::Block & b)
 		std::cout << std::hex << (int)b.data[i];
 	}
 	std::cout << std::endl;
+}
+
+void	WilhelmCBC::printLRSide (WilhelmCBC::LRSide& lr)
+{
+	for (unsigned int i = 0; i < BLOCK_BYTES/2; i++)
+	{
+		std::cout << std::hex << (int)lr.data[i];
+	}
+	std::cout << std::endl;
+}
+
+// Debugging
+
+void WilhelmCBC::publicDebugFunc()
+{
+	Block b = IVGenerator();
+	printBlock(b);
+
+	LRSide L = permutationKey(b, 5, 4824);
+
+	Block * ptr = (Block*) (&L);
+
+	printBlock(*ptr);
+
+	printLRSide(L);
 }

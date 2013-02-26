@@ -64,6 +64,10 @@ public:
 	bool encrypt ();
 	bool decrypt ();
 
+// Debugging
+	void publicDebugFunc();
+
+
 private:
 // Types
 	// Block, used for referencing 1 Block of data.
@@ -94,6 +98,7 @@ private:
 
 // Debugging Methods
 	void	printBlock (Block &);
+	void	printLRSide (LRSide &);
 
 // Private Data Members
 	std::ifstream	_ifile;
@@ -104,6 +109,8 @@ private:
 	std::size_t		_inputSize;
 	Block			_baseKey;
 	Block *			_currentBlock;
+	LRSide *		_currentL;
+	LRSide *		_currentR;
 	std::vector<char> _currentBlockSet;
 	
 };
