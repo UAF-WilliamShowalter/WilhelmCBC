@@ -19,6 +19,7 @@
 #include "WilhelmCBC.h"
 
 #include <stdexcept>	// setInput may throw
+#include <iostream>		// Debugging
 
 extern SHA256::digest SHA256_digest (const std::string &src);
 
@@ -50,16 +51,23 @@ void WilhelmCBC::setKey (std::string password)
 {
 	// Generate 256 bit key from password
 	SHA256::digest initKey = SHA256_digest (password);
-	
-	_baseKey.data[0] = (uint64_t)initKey.data[0];
-	_baseKey.data[1] = (uint64_t)initKey.data[8];
-	_baseKey.data[2] = (uint64_t)initKey.data[16];
-	_baseKey.data[3] = (uint64_t)initKey.data[24];
+
+	for (unsigned int i = 0; i < BLOCK_BYTES; i++)
+	{
+		_baseKey.data[i] = initKey.data[i];
+	}
+
+	/* For Debugging
+	for (int i = 0; i < BLOCK_BYTES; i++)
+	{
+		std::cout << std::hex << (int) initKey.data[i];
+	}
+	std::cout << std::endl;
+	 */
 
 	// Hash key block 5 more times
-	for (int i = 0; i < 5; i++)
+	for (int i = 0; i < HASHING_REPEATS; i++)
 		Hash_SHA256_Block(_baseKey);
-	
 }
 
 bool WilhelmCBC::encrypt ()
@@ -108,9 +116,21 @@ WilhelmCBC::LRSide WilhelmCBC::permutationKey (WilhelmCBC::Block, unsigned int, 
 	
 }
 
-WilhelmCBC::Block WilhelmCBC::IVSGenerator ()
+WilhelmCBC::Block WilhelmCBC::IVGenerator ()
 {
-	
+	// Build IV from system random data;
+	Block b;
+	std::ifstream random;
+	random.open ("/dev/random", std::ios::in | std::ios::binary);
+	random.read((char*)&b.data[0],BLOCK_BYTES);
+	random.close();
+
+	// Hash random data multiple times
+	for (unsigned int i = 0; i < HASHING_REPEATS; i++)
+		Hash_SHA256_Block (b);
+
+	// Return our new Block
+	return b;
 }
 
 WilhelmCBC::Block WilhelmCBC::Padding (WilhelmCBC::Block)
@@ -122,51 +142,43 @@ WilhelmCBC::Block WilhelmCBC::Padding (WilhelmCBC::Block)
 void WilhelmCBC::Hash_SHA256_Block (WilhelmCBC::Block & b)
 {
 	SHA256 hash;
-	hash.add(&b.data[0],32);
+	hash.add(&b.data[0],BLOCK_BYTES);
 	SHA256::digest d = hash.finish();
 	
-	b.data[0] = (uint64_t)d.data[0];
-	b.data[1] = (uint64_t)d.data[8];
-	b.data[2] = (uint64_t)d.data[16];
-	b.data[3] = (uint64_t)d.data[24];
+	for (unsigned int i = 0; i < BLOCK_BYTES; i++)
+	{
+		b.data[i] = d.data[i];
+	}
+
+	// For debugging
+	// printBlock (b);
 }
 
 
 /**** Overloaded Operators ****/
 
-// Block asignment operator
-WilhelmCBC::Block & WilhelmCBC::Block::operator= (const WilhelmCBC::Block &rhs)
+// Block addition operator
+WilhelmCBC::Block & WilhelmCBC::Block::operator+= (const WilhelmCBC::Block &rhs)
 {
-	// Assignment
-	for (unsigned int i = 0; i < 4; i++)
+	// Addition, done in 64bit blocks - no carry between 64bit blocks.
+	// Not true addition, but sufficient for key permutation
+	uint64_t * dataPtr = (uint64_t*)&data[0];
+	const uint64_t * rhsDataPtr = (uint64_t*)&rhs.data[0];
+	
+	for (unsigned int i = 0; i < BLOCK_BYTES/8; i++)
 	{
-		data[i] = rhs.data[i];
+			dataPtr[i] += rhsDataPtr[i];
 	}
+
 	return *this;
 }
 
-// Block addition operator
-WilhelmCBC::Block & WilhelmCBC::Block::operator+ (const WilhelmCBC::Block &rhs)
+// For debugging
+void	WilhelmCBC::printBlock (WilhelmCBC::Block & b)
 {
-	// Addition, carries from one 64bit int to the next, ignores overflow of 256bit struct.
-	// I originally forgot about carries carrying when I decided to make it a for loop. Might have been cleaner expclicitly.
-	for (unsigned int i = 0; i < 4; i++)
+	for (unsigned int i = 0; i < BLOCK_BYTES; i++)
 	{
-		data[i] += rhs.data[i];
-		if (i < 3 && data[i] < rhs.data[i])
-		{
-			++data[i+1];
-			if (i < 2 && data[i+1] < (data[i+1]-1))
-			{
-				++data[i+2];
-				if (i < 1 && data[i+2] < (data[i+2]-1))
-				{
-					// It will be a rare blue moon when this get is executed. Adding to solid 0xF's for 192 bits...
-					++data[i+3];
-				}
-			}
-		}
+		std::cout << std::hex << (int)b.data[i];
 	}
-	
-	return *this;
+	std::cout << std::endl;
 }

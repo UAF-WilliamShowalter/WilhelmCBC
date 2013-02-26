@@ -21,6 +21,10 @@
 
 int main(int argc, const char * argv[])
 {
+	WilhelmCBC encryptor;
+	encryptor.setInput ("/Users/William/Desktop/thetest.png");
+	encryptor.setOutput ("/Users/William/Desktop/theoutput");
+	encryptor.setKey ("myPassword!");
 	return 0;
 }
 

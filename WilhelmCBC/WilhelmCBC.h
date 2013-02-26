@@ -43,11 +43,17 @@
 #include <iostream>		// debugging to console
 
 #include <string>		// std::string
-#include <stdint.h>		// uint64_t
 #include <fstream>		// file IO
 #include <vector>		// std::vector
+#include <stdint.h>		// uint64_t
 
 #include "SHA256.h"		// Public Domain SHA256 hash function
+
+// GLOBAL CONST
+
+const unsigned int BLOCK_BYTES = 32;
+const unsigned int BLOCK_BITS = 256;
+const unsigned int HASHING_REPEATS = 5;
 
 class WilhelmCBC {
 public:
@@ -62,14 +68,13 @@ private:
 // Types
 	// Block, used for referencing 1 Block of data.
 	struct Block {
-		uint64_t data[4];
-		Block & operator+ (const Block &rhs);
-		Block & operator= (const Block &rhs);
+		unsigned char data[BLOCK_BYTES];
+		Block & operator+= (const Block &rhs);
 	};
 
 	// LRSide, used for referencing 1 side in a fiestel process.
 	struct LRSide {
-		uint64_t data[2];
+		unsigned char data[BLOCK_BYTES/2];
 	};
 
 private:
@@ -83,9 +88,12 @@ private:
 
 	LRSide	fiestel (LRSide);
 	LRSide	permutationKey (Block, unsigned int, unsigned int);
-	Block	IVSGenerator ();
+	Block	IVGenerator ();
 	Block	Padding (Block);
 	void	Hash_SHA256_Block (Block &);
+
+// Debugging Methods
+	void	printBlock (Block &);
 
 // Private Data Members
 	std::ifstream	_ifile;
