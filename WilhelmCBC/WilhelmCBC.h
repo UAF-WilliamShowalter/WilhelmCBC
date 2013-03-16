@@ -51,9 +51,12 @@
 
 // GLOBAL CONST
 
-const unsigned int BLOCK_BYTES = 32;
-const unsigned int BLOCK_BITS = 256;
-const unsigned int HASHING_REPEATS = 5;
+const unsigned int CLUSTER_BYTES	= 4096;
+const unsigned int BLOCK_BYTES		= 32;
+const unsigned int BLOCK_BITS		= 256;
+const unsigned int HASHING_REPEATS	= 2;
+const unsigned int ROR_CONSTANT		= 27;
+const unsigned int FIESTEL_ROUNDS	= 16;
 
 class WilhelmCBC {
 public:
@@ -79,6 +82,7 @@ private:
 	// LRSide, used for referencing 1 side in a fiestel process.
 	struct LRSide {
 		unsigned char data[BLOCK_BYTES/2];
+		LRSide operator^ (const LRSide & rhs) const;
 	};
 
 private:
@@ -91,14 +95,17 @@ private:
 	void roundDec();
 
 	LRSide	fiestel (LRSide);
-	LRSide	permutationKey (Block, unsigned int, unsigned int);
+	LRSide	permutationKey (Block, unsigned long, unsigned long);
 	Block	IVGenerator ();
 	Block	Padding (Block);
 	void	Hash_SHA256_Block (Block &);
+	Block	Hash_SHA256_Current_Cluster ();
+
+	LRSide	rorLRSide (const LRSide &, unsigned long);
 
 // Debugging Methods
-	void	printBlock (Block &);
-	void	printLRSide (LRSide &);
+	void	printBlock (const Block &) const;
+	void	printLRSide (const LRSide &) const;
 
 // Private Data Members
 	std::ifstream	_ifile;

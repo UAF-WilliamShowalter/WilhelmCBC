@@ -21,12 +21,20 @@
 
 int main(int argc, const char * argv[])
 {
+	//try {
 	WilhelmCBC encryptor;
-	encryptor.setInput ("/Users/William/Desktop/thetest.png");
-	encryptor.setOutput ("/Users/William/Desktop/theoutput");
-	encryptor.setKey ("myPassword!");
+	// Change the file paths before you try and run this. I haven't copied and modified the user menu wrapper from my 301 project.
+		
+	//encryptor.setInput ("/Users/William/Desktop/testinput.sql");
+	//encryptor.setOutput ("/Users/William/Desktop/theoutput");
+	//encryptor.setKey ("myPassword!");
 
 	encryptor.publicDebugFunc();
 	return 0;
+	//}
+	//catch (...)
+	//{
+		return 0;
+	//}
 }
 
