@@ -64,7 +64,7 @@ public:
 	void setInput (std::string filename);
 	void setOutput (std::string filename);
 	void setKey (std::string password);
-	bool encrypt ();
+	void encrypt ();
 	bool decrypt ();
 
 // Debugging
@@ -77,6 +77,8 @@ private:
 	struct Block {
 		unsigned char data[BLOCK_BYTES];
 		Block & operator+= (const Block &rhs);
+		bool    operator== (const Block &rhs) const;
+		Block   operator^  (const Block &rhs) const;
 	};
 
 	// LRSide, used for referencing 1 side in a fiestel process.
@@ -115,6 +117,7 @@ private:
 	unsigned long	_roundNum;
 	std::size_t		_inputSize;
 	Block			_baseKey;
+	Block			_lastBlockPrevCluster;
 	Block *			_currentBlock;
 	LRSide *		_currentL;
 	LRSide *		_currentR;
