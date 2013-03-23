@@ -1,6 +1,6 @@
 /*
  Written by William Showalter. williamshowalter@gmail.com.
- Date Last Modified: 2013 February 23
+ Date Last Modified: 2013 March 23
  Created: 2013 February 23
 
  Released under Creative Commons - creativecommons.org/licenses/by-nc-sa/3.0/
@@ -58,24 +58,21 @@ void WilhelmCBC::setKey (std::string password)
 		_baseKey.data[i] = initKey.data[i];
 	}
 
-	/* For Debugging
-	for (int i = 0; i < BLOCK_BYTES; i++)
-	{
-		std::cout << std::hex << (int) initKey.data[i];
-	}
-	std::cout << std::endl;
-	 */
-
 	// Hash key block 5 more times
 	for (int i = 0; i < HASHING_REPEATS; i++)
 		Hash_SHA256_Block(_baseKey);
+}
+
+std::size_t WilhelmCBC::getSize()
+{
+	return _inputSize;
 }
 
 void WilhelmCBC::encrypt ()
 {
 	// Temp storage for each clusters individual hashes
 	std::vector <Block> clusterHashes;
-	
+
 	if (!_ifile.is_open())
         throw std::runtime_error ("NO INPUT FILE HAS BEEN OPENED");
 	if (!_ofile.is_open())
@@ -95,7 +92,7 @@ void WilhelmCBC::encrypt ()
 		if (_indexToStream + CLUSTER_BYTES < _inputSize)
 		{
 			// Reads in the next section
-			_currentBlockSet.resize(CLUSTER_BYTES);
+			_currentBlockSet.resize(CLUSTER_BYTES/BLOCK_BYTES);
 			_ifile.read((char*)&_currentBlockSet[0],CLUSTER_BYTES);
 
 			// Update pos in stream.
@@ -104,7 +101,10 @@ void WilhelmCBC::encrypt ()
 		else // Last cluster, <= CLUSTER_BYTES
 		{
 			// Reads in rest of file, tries to read 1 off end, setting the fail bit and prevent loop from continuing
-			_currentBlockSet.resize(_inputSize-_indexToStream);
+			std::size_t tempBlockNum = (_inputSize%CLUSTER_BYTES)/BLOCK_BYTES;
+			if (_inputSize%BLOCK_BYTES)
+				tempBlockNum++;
+			_currentBlockSet.resize(tempBlockNum);
 			_ifile.read((char*)&_currentBlockSet[0],_inputSize-_indexToStream+1);
 
 			// Update pos in stream.
@@ -117,8 +117,19 @@ void WilhelmCBC::encrypt ()
 		// Encrypts cluster
 		encCBC();
 
-		// Write out to file
-		_ofile.write((char*)&_currentBlockSet[0], _currentBlockSet.size());
+		// Write out to file, all last cluster cases include +BLOCK_BYTES to account for padding block
+		// Not last cluster
+		if (_indexToStream < _inputSize)
+			_ofile.write((char*)&_currentBlockSet[0], _currentBlockSet.size()*BLOCK_BYTES);
+		// Last cluster and Last Block not a multiple of BLOCK_BYTES
+		else if (_inputSize%CLUSTER_BYTES && _inputSize%BLOCK_BYTES)
+			_ofile.write((char*)&_currentBlockSet[0], (_inputSize%CLUSTER_BYTES)-(_inputSize%BLOCK_BYTES)+BLOCK_BYTES+BLOCK_BYTES);
+		// Last cluster and Last Block is a multiple of BLOCK_BYTES
+		else if (_inputSize%CLUSTER_BYTES)
+			_ofile.write((char*)&_currentBlockSet[0], (_inputSize%CLUSTER_BYTES) + BLOCK_BYTES);
+		// Last cluster and cluster is a CLUSTER_BYTES in size.
+		else
+			_ofile.write((char*)&_currentBlockSet[0], CLUSTER_BYTES + BLOCK_BYTES);
 
 		// Not strictly necessary, but good for what happens when this loop ends, and doesn't change capacity.
 		_currentBlockSet.clear();
@@ -126,51 +137,124 @@ void WilhelmCBC::encrypt ()
 
 	// Assign clusterHashes to _currentBlockCluster
 
-	_currentBlockSet.resize(clusterHashes.size()*BLOCK_BYTES);
+	_currentBlockSet = clusterHashes;
 	
-	for (std::vector<Block>::iterator iter = clusterHashes.begin(); iter != clusterHashes.end(); iter++)
-	{
-		for (std::size_t pos = 0; pos < BLOCK_BYTES; pos++)
-		{
-			_currentBlockSet[pos+BLOCK_BYTES*(clusterHashes.size()-(clusterHashes.end()-iter))] = iter[0].data[pos];
-		}
-	}
-
 	// Encrypt clusterHashers and write it out to file
 	Block hashesTemp = Hash_SHA256_Current_Cluster();
 
 	_ofile.write((char*)&hashesTemp.data[0], BLOCK_BYTES);
+
+	// Cleanup
+	_indexToStream = 0;
+	_currentBlock = NULL;
+	_currentL = NULL;
+	_currentR = NULL;
+	_currentBlockSet.clear();
+	_blockNum = 0;
+	_roundNum = 0;
 }
 
 bool WilhelmCBC::decrypt ()
 {
 	// Temp storage for each clusters individual hashes of unencrypted data
 	std::vector <Block> clusterHashes;
+	Block OrigHashChecksum = Block();
 
 	if (!_ifile.is_open())
         throw std::runtime_error ("NO INPUT FILE HAS BEEN OPENED");
+	if (_inputSize == 0)
+		throw std::runtime_error ("INPUT FILE IS EMPTY");
+	if (_inputSize % BLOCK_BYTES) // All encrypted files are a multiple of BLOCK_BYTES long
+		throw std::runtime_error ("INPUT IS NOT A VALID ENCRYPTED FILE");
 	if (!_ofile.is_open())
         throw std::runtime_error ("NO OUTPUT FILE HAS BEEN SET");
 	if (_baseKey == Block())
         throw std::runtime_error ("NO PASSWORD HAS BEEN SET");
 
 	// Read IV
-	_ifile.read((char*)&_lastBlockPrevCluster.data[0], CLUSTER_BYTES);
+	_ifile.read((char*)&_lastBlockPrevCluster.data[0], BLOCK_BYTES);
+	_inputSize -= BLOCK_BYTES; // Less file size for IV
 
-	return true;
+	while (!_ifile.fail())
+	{
+		// Read a cluster
+		if (_indexToStream + CLUSTER_BYTES < _inputSize)
+		{
+			// Reads in next section
+			_currentBlockSet.resize(CLUSTER_BYTES/BLOCK_BYTES);
+			_ifile.read((char*)&_currentBlockSet[0],CLUSTER_BYTES);
+
+			// Update pos in stream
+			_indexToStream += CLUSTER_BYTES;
+		}
+		// Last cluster, <= CLUSTER_BYTES
+		else
+		{
+			// Reads in rest of file, tries to read 1 off end, setting the fail bit and prevent loop from continuing
+			_currentBlockSet.resize((_inputSize%CLUSTER_BYTES)/BLOCK_BYTES);
+			_ifile.read((char*)&_currentBlockSet[0],_inputSize-_indexToStream+1);
+			
+			// Update pos in stream.
+			_indexToStream = _inputSize;
+		}
+
+		// Original HMAC returned if on final block, default constructed block otherwise.
+		OrigHashChecksum = decCBC();
+
+		// Remove padding before hashing
+		if (_indexToStream >= _inputSize)
+			_currentBlockSet.resize(_currentBlockSet.size()-1);
+
+		clusterHashes.push_back(Hash_SHA256_Current_Cluster());
+
+		// Write out to file
+		if (_indexToStream < _inputSize)
+			_ofile.write((char*)&_currentBlockSet[0], CLUSTER_BYTES);
+		else 
+		{
+			// Write out to file remaining data. Padding removed from _inputSize scope in final decCBC
+			_ofile.write((char*)&_currentBlockSet[0], (_inputSize%CLUSTER_BYTES));
+		}
+
+		_currentBlockSet.clear();
+	}
+	
+	// Assign Hashes
+	_currentBlockSet = clusterHashes;
+	Block tempVal = Hash_SHA256_Current_Cluster();
+
+	// Cleanup
+	_indexToStream = 0;
+	_currentBlock = NULL;
+	_currentL = NULL;
+	_currentR = NULL;
+	_currentBlockSet.clear();
+	_blockNum = 0;
+	_roundNum = 0;
+
+	return (OrigHashChecksum == tempVal);
 }
 
 // Private Methods
+
+// Encrypts a cluster
 void WilhelmCBC::encCBC()
 {
-	// finds number of blocks to be processed in for loop below. Does not process any trailing unfull blocks (blocks with padding).
-	unsigned long relativeBlockCount = _currentBlockSet.size()/BLOCK_BYTES;
+	// finds number of blocks to be processed in for loop below. Does not process any trailing/last block (for padding calculation).
+	unsigned long relativeBlockCount;
+
+	if (_indexToStream >= _inputSize)
+	{
+		relativeBlockCount = (_inputSize%CLUSTER_BYTES)/BLOCK_BYTES;
+		if (!(_inputSize%BLOCK_BYTES))
+			relativeBlockCount--;
+	}
+	else 
+		relativeBlockCount = CLUSTER_BYTES/BLOCK_BYTES-1;
 
 	_currentBlock = (Block*)&_currentBlockSet[0];
-
 	*_currentBlock = *_currentBlock ^ _lastBlockPrevCluster;
-	
-	for (; _currentBlock != (Block*)&_currentBlockSet[0]+relativeBlockCount-1; ++_currentBlock, ++_blockNum)
+	for (; _currentBlock != (Block*)&_currentBlockSet[0]+relativeBlockCount; ++_currentBlock, ++_blockNum)
 	{
 		// Encrypt current block, then perform CBC
 		blockEnc();
@@ -185,30 +269,48 @@ void WilhelmCBC::encCBC()
 	if (_indexToStream >= _inputSize)
 	{
 		// Insert padding block after padded block
-		_currentBlockSet.resize(_currentBlockSet.size()+BLOCK_BYTES);
-		*(_currentBlock+1) = Padding(*_currentBlock);
-		*(_currentBlock+1) = *(_currentBlock+1)^*_currentBlock;
+		// Need to keep _currentBlock pointer at same index after potentially reallocating.
 
+		std::size_t temp = 0;
+		for (std::vector<Block>::iterator i = _currentBlockSet.begin();
+				i != _currentBlockSet.end(); i++, temp++);
+
+		_currentBlockSet.push_back( Padding(*_currentBlock));
+
+		_currentBlock = ((Block*)&_currentBlockSet[temp]);
+		
+		*(_currentBlock) = *(_currentBlock) ^ *(_currentBlock-1);
+		
 		// Encrypt padding block.
-		++_currentBlock;
 		++_blockNum;
-		encCBC();
+		blockEnc();
 	}
 }
 
-void WilhelmCBC::decCBC()
+// Decrypts a cluster, if last cluster returns HMAC block
+WilhelmCBC::Block WilhelmCBC::decCBC()
 {
 	// finds number of blocks to be processed in for loop below. Any correct encrypted file is a multple of BLOCK_BYTES.
-	unsigned long relativeBlockCount = _currentBlockSet.size()/BLOCK_BYTES;
+	unsigned long relativeBlockCount;
+
+	if (_indexToStream >= _inputSize)
+	{
+		_inputSize -= BLOCK_BYTES; // Discount the HMAC block - do not process.
+		relativeBlockCount = (_inputSize%CLUSTER_BYTES)/BLOCK_BYTES;
+	}
+	else 
+		relativeBlockCount = CLUSTER_BYTES/BLOCK_BYTES-1;
 
 	// Copy that stay's encrypted for use in CBC unwrapping
-	std::vector <char> encrypted = _currentBlockSet;
+	std::vector <Block> encrypted = _currentBlockSet;
 	Block * undecrypted = (Block*)&encrypted[0];
 
 	// Decrypt the first block
 	_currentBlock = (Block*)&_currentBlockSet[0];
 	blockDec();
-	*_currentBlock++ = *_currentBlock ^ _lastBlockPrevCluster;
+	*_currentBlock = *_currentBlock ^ _lastBlockPrevCluster;
+	_currentBlock++;
+	++_blockNum;
 	
 	for (; _currentBlock != (Block*)&_currentBlockSet[0]+relativeBlockCount; ++_currentBlock, ++_blockNum)
 	{
@@ -219,51 +321,74 @@ void WilhelmCBC::decCBC()
 	// If on last cluster of file
 	if (_indexToStream >= _inputSize)
 	{
+		// Recovering Padding Size location
 		Block * paddingBlock = --_currentBlock;
-		*paddingBlock = *paddingBlock ^ *undecrypted;
+		Block tempBlock = *(--undecrypted);
+		Hash_SHA256_Block(tempBlock);
+		unsigned long temppos = (tempBlock.data[0])%BLOCK_BYTES;
 
 		// Extract obfuscated location of number of meaningful bits, modify inputSize to be the size of unencrypted input
-			// Less the padding block, less the padded block, more the number of meaningful bytes in last block.
-		_inputSize += paddingBlock->data[(--_currentBlock)->data[0]] - BLOCK_BYTES - BLOCK_BYTES;
+			// Less the padding block, less the padded block, more the number of meaningful bytes in the padded block.
 
-		// Removing padding before write out to file
-		_currentBlockSet.resize(_currentBlockSet.size()-BLOCK_BYTES);
+		_inputSize += paddingBlock->data[temppos];
+		_inputSize -= BLOCK_BYTES + BLOCK_BYTES;
+
+		Block hashChecksum = *(++_currentBlock);
+		// Removing hmac before write out to file
+		_currentBlockSet.resize(_currentBlockSet.size()-1);
+
+		// Return hash checksum for comaprison
+		return hashChecksum;
+	}
+	else // Not the last cluster
+	{
+		// Decrypt the last encrypted block
+		blockDec();
+		*(_currentBlock) = *(_currentBlock) ^ *undecrypted++;
+		// Save the last encrypted to start off the CBC in the next cluster
+		_lastBlockPrevCluster = *undecrypted;
+
+		return Block(); // We don't care what block we return if it's not the last one
 	}
 }
 
+// Encrypts the current block
 void WilhelmCBC::blockEnc()
 {
 	_currentL = (LRSide *)_currentBlock;
 	_currentR = &_currentL[1];
 
-	for (_roundNum = 0; _roundNum < FIESTEL_ROUNDS; _roundNum++)
+	for (_roundNum = 0; _roundNum < FEISTEL_ROUNDS; _roundNum++)
 		roundEnc();
 }
 
+// Decrypts the current block
 void WilhelmCBC::blockDec()
 {
 	_currentL = (LRSide *)_currentBlock;
 	_currentR = &_currentL[1];
 
-	for (_roundNum = FIESTEL_ROUNDS-1; _roundNum != 0; _roundNum--)
+	for (_roundNum = FEISTEL_ROUNDS-1; _roundNum != 0; _roundNum--)
 		roundDec();
 	// Last round
 	roundDec();
 }
 
+// Performs a Feistel round for encryption
 void WilhelmCBC::roundEnc()
 {
-	*_currentL = *_currentL ^ fiestel(*_currentR);
-	*_currentR = *_currentR ^ fiestel(*_currentL);
+	*_currentL = *_currentL ^ feistel(*_currentR);
+	*_currentR = *_currentR ^ feistel(*_currentL);
 }
+// Performs a Feistel round for decryption
 void WilhelmCBC::roundDec()
 {
-	*_currentR = *_currentR ^ fiestel(*_currentL);
-	*_currentL = *_currentL ^ fiestel(*_currentR);
+	*_currentR = *_currentR ^ feistel(*_currentL);
+	*_currentL = *_currentL ^ feistel(*_currentR);
 }
 
-// Performs fiestel manipulation to be ^='d with the opposing side.
-WilhelmCBC::LRSide WilhelmCBC::fiestel (WilhelmCBC::LRSide baseDerivation)
+// Performs Feistel manipulation to be ^='d with the opposing side.
+WilhelmCBC::LRSide WilhelmCBC::feistel (WilhelmCBC::LRSide baseDerivation)
 {
 	/* Byte substitution table (stolen from Rijndael) */
 	unsigned char substitutionSingleChar[256] =
@@ -295,7 +420,7 @@ WilhelmCBC::LRSide WilhelmCBC::fiestel (WilhelmCBC::LRSide baseDerivation)
 
 		// _roundNum has maximum value of 16, so 16+27 is < 64, which is the range of values for which rorLRSide behaviors reasonably.
 		// In debugging I noticed a very strange convergence that happens with most vlaues of ROR_CONSTANT when _roundNum is held constant, where repeated
-		//	runs of fiestel function with the same input would converge to a single value. _roundNum changes every run so it's not significant.
+		//	runs of feistel function with the same input would converge to a single value. _roundNum changes every run so it's not significant.
 
 		baseDerivation = rorLRSide(baseDerivation, ROR_CONSTANT+_roundNum);
 
@@ -387,7 +512,7 @@ void WilhelmCBC::Hash_SHA256_Block (WilhelmCBC::Block & b)
 WilhelmCBC::Block WilhelmCBC::Hash_SHA256_Current_Cluster ()
 {
 	SHA256 hash;
-	hash.add(&_currentBlockSet[0],_currentBlockSet.size());
+	hash.add((char*)&_currentBlockSet[0],_currentBlockSet.size()*BLOCK_BYTES);
 	SHA256::digest d = hash.finish();
 
 	Block b;
@@ -480,63 +605,5 @@ void	WilhelmCBC::printLRSide (const WilhelmCBC::LRSide& lr) const
 
 void WilhelmCBC::publicDebugFunc()
 {
-// Testing IVGenerator, setKey	
-/*
-	std::cout << "Randomly generated block" << std::endl;
-	Block b = IVGenerator();
-	printBlock(b);
-
-	std::cout << std::endl << "Base key, derived from 'MyPasswordIstGut?'" << std::endl;
-	setKey ("MyPasswordIstGut?'");
-	printBlock(_baseKey);
-
- */
-
-// Testing roundEnc function
-/*
-	LRSide L;
-	for (int i = 0; i < BLOCK_BYTES/2; i++)
-		L.data[i] = 0;
-	printLRSide (L);
-	LRSide R = L;
-	printLRSide (R);
-
-	
-	_currentL = &L;
-	_currentR = &R;
-
-	for (_roundNum = 0; _roundNum < FIESTEL_ROUNDS; _roundNum++)
-	{
-		roundEnc();
-		printLRSide (*_currentL);
-		printLRSide (*_currentR);
-	}
- */
-
-// Testing blockEnc and blockDec
-/*
-	setKey("Password");
-	Block myBlock;
-	unsigned char alpha = 'a';
-	for (unsigned int i = 0; i < BLOCK_BYTES; alpha++, i++)
-		myBlock.data[i] = alpha;
-	printBlock (myBlock);
-
-	_currentBlock = &myBlock;
-	blockEnc();
-	printBlock (myBlock);
-	blockDec();
-	printBlock (myBlock);
- */
-
-// Testing Block xor
-/*
-	Block ran = IVGenerator();
-	Block ran2 = IVGenerator();
-	printBlock (ran);
-	ran = ran ^ ran2;
-	printBlock (ran);
-	ran = ran ^ ran2;
-	printBlock (ran);
- */
+	std::cout << "\nInput size = " << _inputSize << "\n";
 }

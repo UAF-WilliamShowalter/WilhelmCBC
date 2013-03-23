@@ -1,6 +1,6 @@
 /*
 	Written by William Showalter. williamshowalter@gmail.com.
-	Date Last Modified: 2013 February 23
+	Date Last Modified: 2013 March 23
 	Created: 2013 February 23
  
 	Released under Creative Commons - creativecommons.org/licenses/by-nc-sa/3.0/
@@ -34,6 +34,7 @@
 	
 	setInput or setOutput may throw. Client code should check for errors. Exceptions documented in definitions.
 
+	encrypt() or decrypt() may throw if set functions are not called first.
 */
 
 
@@ -56,7 +57,7 @@ const unsigned int BLOCK_BYTES		= 32;
 const unsigned int BLOCK_BITS		= 256;
 const unsigned int HASHING_REPEATS	= 2;
 const unsigned int ROR_CONSTANT		= 27;
-const unsigned int FIESTEL_ROUNDS	= 16;
+const unsigned int FEISTEL_ROUNDS	= 16;
 
 class WilhelmCBC {
 public:
@@ -67,8 +68,23 @@ public:
 	void encrypt ();
 	bool decrypt ();
 
+	std::size_t getSize();
+
 // Debugging
 	void publicDebugFunc();
+
+// Constructors
+	WilhelmCBC ()
+	{
+		_indexToStream = 0;
+		_blockNum = 0;
+		_roundNum = 0;
+		_inputSize = 0;
+		_currentBlock = NULL;
+		_currentL = NULL;
+		_currentR = NULL;
+		std::vector<char> _currentBlockSet;
+	}
 
 
 private:
@@ -81,7 +97,7 @@ private:
 		Block   operator^  (const Block &rhs) const;
 	};
 
-	// LRSide, used for referencing 1 side in a fiestel process.
+	// LRSide, used for referencing 1 side in a feistel process.
 	struct LRSide {
 		unsigned char data[BLOCK_BYTES/2];
 		LRSide operator^ (const LRSide & rhs) const;
@@ -89,14 +105,14 @@ private:
 
 private:
 // Private Methods
-	void encCBC();
-	void decCBC();
+	void  encCBC();
+	Block decCBC();
 	void blockEnc();
 	void blockDec();
 	void roundEnc();
 	void roundDec();
 
-	LRSide	fiestel (LRSide);
+	LRSide	feistel (LRSide);
 	LRSide	permutationKey (Block, unsigned long, unsigned long);
 	Block	IVGenerator ();
 	Block	Padding (Block);
@@ -121,7 +137,7 @@ private:
 	Block *			_currentBlock;
 	LRSide *		_currentL;
 	LRSide *		_currentR;
-	std::vector<char> _currentBlockSet;
+	std::vector<Block> _currentBlockSet;
 	
 };
 
