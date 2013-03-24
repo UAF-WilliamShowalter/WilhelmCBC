@@ -79,6 +79,7 @@ public:
 		_indexToStream = 0;
 		_blockNum = 0;
 		_roundNum = 0;
+		_clusterNum = 0;
 		_inputSize = 0;
 		_currentBlock = NULL;
 		_currentL = NULL;
@@ -131,6 +132,7 @@ private:
 	unsigned long	_indexToStream;
 	unsigned long	_blockNum;
 	unsigned long	_roundNum;
+	unsigned long	_clusterNum;
 	std::size_t		_inputSize;
 	Block			_baseKey;
 	Block			_lastBlockPrevCluster;

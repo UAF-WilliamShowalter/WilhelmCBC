@@ -152,6 +152,7 @@ void WilhelmCBC::encrypt ()
 	_currentBlockSet.clear();
 	_blockNum = 0;
 	_roundNum = 0;
+	_clusterNum = 0;
 }
 
 bool WilhelmCBC::decrypt ()
@@ -231,6 +232,7 @@ bool WilhelmCBC::decrypt ()
 	_currentBlockSet.clear();
 	_blockNum = 0;
 	_roundNum = 0;
+	_clusterNum = 0;
 
 	return (OrigHashChecksum == tempVal);
 }
@@ -285,6 +287,9 @@ void WilhelmCBC::encCBC()
 		++_blockNum;
 		blockEnc();
 	}
+
+	// Increment Cluster number
+	_clusterNum++;
 }
 
 // Decrypts a cluster, if last cluster returns HMAC block
@@ -336,7 +341,7 @@ WilhelmCBC::Block WilhelmCBC::decCBC()
 		Block hashChecksum = *(++_currentBlock);
 		// Removing hmac before write out to file
 		_currentBlockSet.resize(_currentBlockSet.size()-1);
-
+		
 		// Return hash checksum for comaprison
 		return hashChecksum;
 	}
@@ -348,6 +353,9 @@ WilhelmCBC::Block WilhelmCBC::decCBC()
 		// Save the last encrypted to start off the CBC in the next cluster
 		_lastBlockPrevCluster = *undecrypted;
 
+		// Increment Cluster
+		_clusterNum++;
+		
 		return Block(); // We don't care what block we return if it's not the last one
 	}
 }
@@ -430,7 +438,16 @@ WilhelmCBC::LRSide WilhelmCBC::feistel (WilhelmCBC::LRSide baseDerivation)
 // Creates a LRBlock for use as a round key
 WilhelmCBC::LRSide WilhelmCBC::permutationKey (WilhelmCBC::Block key, unsigned long round, unsigned long blockNum)
 {
+	// Split the base key
+	LRSide keyHalf1 = *(LRSide*)&key.data[0];
+	LRSide keyHalf2 = *(((LRSide*)&key.data[0])+1);
 
+	LRSide roundKey = (rorLRSide(keyHalf1, (_clusterNum+ROR_CONSTANT+3)%(BLOCK_BITS/2)))
+						^(rorLRSide(keyHalf2, (_blockNum+ROR_CONSTANT+7)%(BLOCK_BITS/2)));
+	roundKey = rorLRSide (roundKey, (_roundNum*4+ROR_CONSTANT+13)%(BLOCK_BITS/2));
+
+	return roundKey;
+	/*
 	// Generate permutation key from Block key
 	key.data[0]+=blockNum;
 	Hash_SHA256_Block(key);
@@ -446,6 +463,7 @@ WilhelmCBC::LRSide WilhelmCBC::permutationKey (WilhelmCBC::Block key, unsigned l
 
 	// return our LRSide key
 	return *((LRSide*)LRKeyPtr1);
+	 */
 }
 
 // Right Circulular bit shifts an LRSide
